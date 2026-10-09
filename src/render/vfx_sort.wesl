@@ -6,10 +6,9 @@
 struct KeyValuePair {
     /// Sorting key.
     key: u32,
-#ifdef HAS_DUAL_KEY
+    @if(HAS_DUAL_KEY)
     /// Secondary sorting key. Used for values with equal primary key.
     key2: u32,
-#endif
     /// Value associated with the sort key(s), generally an index to some other data.
     /// Copied as is and otherwise ignored by the sorting algorithm.
     value: u32,
@@ -28,11 +27,10 @@ fn compare_greater(kv1: KeyValuePair, kv2: KeyValuePair) -> bool {
     if (kv1.key > kv2.key) {
         return true;
     }
-#ifdef HAS_DUAL_KEY
+    @if(HAS_DUAL_KEY)
     if (kv1.key == kv2.key) {
         return kv1.key2 > kv2.key2;
     }
-#endif
     return false;
 }
 
@@ -216,9 +214,8 @@ fn batcher_odd_even_mergesort(data: ptr<function, array<KeyValuePair, numItemPer
     // sorted original array.
     for (var i: u32 = num; i < numItemPerThread; i += 1u) {
         data[i].key = 0xFFFFFFFFu;
-#ifdef HAS_DUAL_KEY
+    @if(HAS_DUAL_KEY)
         data[i].key2 = 0xFFFFFFFFu;
-#endif
     }
 
     // Actual numItemPerThread-length sort
@@ -325,7 +322,7 @@ fn parallel_merge_sort(thread_id: u32, block_id: u32) {
     }
 }
 
-#ifdef TEST
+@if(TEST) {
 
 /// Test for find_effect_from_particle().
 @compute @workgroup_size(64)
@@ -428,7 +425,7 @@ fn test_block_sort(@builtin(global_invocation_id) global_invocation_id: vec3<u32
     block_sort(tid, 0u, 0u, total_num_items);
 }
 
-#endif
+}
 
 // GPU sorts
 // https://linebender.org/wiki/gpu/sorting/
@@ -462,7 +459,7 @@ fn test_block_sort(@builtin(global_invocation_id) global_invocation_id: vec3<u32
 
 /// Sort particles in blocks of 1024 per workgroup.
 ///
-/// Larger inputs are merged by vfx_sort_merge.wgsl in subsequent compute passes.
+/// Larger inputs are merged by vfx_sort_merge.wesl in subsequent compute passes.
 @compute @workgroup_size(64)
 fn sort_blocks(@builtin(local_invocation_index) thread_id: u32, @builtin(workgroup_id) workgroup_id: vec3<u32>) {
     let block_id = workgroup_id.x;  // wgpu doesn't support @builtin(workgroup_index)

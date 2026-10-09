@@ -235,6 +235,7 @@ impl SortBindGroups {
             entry_point: Some("sort_blocks".into()),
             immediate_size: 0,
             zero_initialize_workgroup_memory: false,
+            constants: vec![],
         });
 
         let sort_merge_bind_group_layout_desc = BindGroupLayoutDescriptor::new(
@@ -257,6 +258,7 @@ impl SortBindGroups {
                 entry_point: Some("merge_sort".into()),
                 immediate_size: 0,
                 zero_initialize_workgroup_memory: false,
+                constants: vec![],
             });
 
         let alignment = render_device.limits().min_storage_buffer_offset_alignment;
@@ -293,6 +295,7 @@ impl SortBindGroups {
                 entry_point: Some("sort_copy".into()),
                 immediate_size: 0,
                 zero_initialize_workgroup_memory: false,
+                constants: vec![],
             });
 
         Self {
@@ -531,6 +534,7 @@ impl SortBindGroups {
                         entry_point: Some("sort_fill".into()),
                         immediate_size: 0,
                         zero_initialize_workgroup_memory: false,
+                        constants: vec![],
                     });
                 (bind_group_layout_desc, pipeline_id)
             });
@@ -1216,7 +1220,7 @@ mod gpu_tests {
             {
                 // Scope get_mapped_range_mut() to force a drop before unmap()
                 {
-                    let mut mapped = sort_buffer.slice(..).get_mapped_range_mut();
+                    let mut mapped = sort_buffer.slice(..).get_mapped_range_mut().unwrap();
                     mapped.slice(..4).copy_from_slice(cast_slice(&[count]));
                     mapped.slice(4..).copy_from_slice(cast_slice(pairs));
                 }
@@ -1243,10 +1247,12 @@ mod gpu_tests {
                     bind_group_layouts: &[Some(&bind_group_layout)],
                     immediate_size: 0,
                 });
-            let src = VFX_SORT_WGSL
-                .replace("#ifdef HAS_DUAL_KEY", "")
-                .replace("#ifdef TEST", "")
-                .replace("#endif", "");
+            let src = compose_wesl_shader(
+                VFX_SORT_WGSL.as_ref(),
+                &[],
+                &[("HAS_DUAL_KEY", true), ("TEST", true)],
+            )
+            .expect("Failed to compose vfx_sort.wesl");
             let shader_module =
                 self.device
                     .create_and_validate_shader_module(ShaderModuleDescriptor {
@@ -1317,7 +1323,7 @@ mod gpu_tests {
                 timeout: None,
             });
             let _ = futures::executor::block_on(rx);
-            let view = buffer_slice.get_mapped_range();
+            let view = buffer_slice.get_mapped_range().unwrap();
             assert_eq!(view.len(), byte_size as usize);
             println!("Result buffer downloaded to CPU");
 
@@ -1457,7 +1463,7 @@ mod gpu_tests {
             {
                 // Scope get_mapped_range_mut() to force a drop before unmap()
                 {
-                    let mut mapped = sort_buffer.slice(..).get_mapped_range_mut();
+                    let mut mapped = sort_buffer.slice(..).get_mapped_range_mut().unwrap();
                     mapped.slice(..4).copy_from_slice(cast_slice(&[count]));
                     mapped.slice(4..).copy_from_slice(cast_slice(pairs));
                 }
@@ -1504,10 +1510,12 @@ mod gpu_tests {
                     bind_group_layouts: &[Some(&bind_group_layout)],
                     immediate_size: 0,
                 });
-            let src = VFX_SORT_MERGE_WGSL
-                .replace("#ifdef HAS_DUAL_KEY", "")
-                .replace("#ifdef TEST", "")
-                .replace("#endif", "");
+            let src = compose_wesl_shader(
+                VFX_SORT_MERGE_WGSL.as_ref(),
+                &[],
+                &[("HAS_DUAL_KEY", true), ("TEST", true)],
+            )
+            .expect("Failed to compose vfx_sort_merge.wesl");
             let shader_module =
                 self.device
                     .create_and_validate_shader_module(ShaderModuleDescriptor {
@@ -1580,7 +1588,7 @@ mod gpu_tests {
                 timeout: None,
             });
             let _ = futures::executor::block_on(rx);
-            let view = buffer_slice.get_mapped_range();
+            let view = buffer_slice.get_mapped_range().unwrap();
             assert_eq!(view.len(), sort_byte_size as usize);
             println!("Result buffer downloaded to CPU");
 

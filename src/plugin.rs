@@ -54,11 +54,11 @@ use crate::{
 
 /// Source code for the `vfx_sort` compute shader.
 pub(crate) const VFX_SORT_WGSL: Cow<'static, str> =
-    Cow::Borrowed(include_str!("render/vfx_sort.wgsl"));
+    Cow::Borrowed(include_str!("render/vfx_sort.wesl"));
 
 /// Source code for the `vfx_sort_merge` compute shader.
 pub(crate) const VFX_SORT_MERGE_WGSL: Cow<'static, str> =
-    Cow::Borrowed(include_str!("render/vfx_sort_merge.wgsl"));
+    Cow::Borrowed(include_str!("render/vfx_sort_merge.wesl"));
 
 /// Labels for the Hanabi systems.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, SystemSet)]
@@ -119,9 +119,9 @@ const HANABI_COMMON_TEMPLATE_HANDLE: Handle<Shader> =
 pub struct HanabiPlugin;
 
 impl HanabiPlugin {
-    /// Create the `vfx_common.wgsl` shader with proper alignment.
+    /// Create the `vfx_common.wesl` shader with proper alignment.
     ///
-    /// This creates a new [`Shader`] from the `vfx_common.wgsl` template file,
+    /// This creates a new [`Shader`] from the `vfx_common.wesl` template file,
     /// by applying the given alignment for storage buffers. This produces a
     /// shader ready for the specific GPU device associated with that
     /// alignment.
@@ -130,25 +130,15 @@ impl HanabiPlugin {
             GpuSpawnerParams::padding_code(min_storage_buffer_offset_alignment);
         let batch_info_padding_code =
             GpuBatchInfo::padding_code(min_storage_buffer_offset_alignment);
-        let common_code = include_str!("render/vfx_common.wgsl")
+        let common_code = include_str!("render/vfx_common.wesl")
             .replace("{{SPAWNER_PADDING}}", &spawner_padding_code)
             .replace("{{BATCH_INFO_PADDING}}", &batch_info_padding_code);
-        Shader::from_wgsl(
-            common_code,
-            std::path::Path::new(file!())
-                .parent()
-                .unwrap()
-                .join(format!(
-                    "render/vfx_common_{}.wgsl",
-                    min_storage_buffer_offset_alignment
-                ))
-                .to_string_lossy(),
-        )
+        Shader::from_wesl(common_code, "embedded://bevy_hanabi/vfx_common.wesl")
     }
 
-    /// Create the `vfx_indirect.wgsl` shader with proper alignment.
+    /// Create the `vfx_indirect.wesl` shader with proper alignment.
     ///
-    /// This creates a new [`Shader`] from the `vfx_indirect.wgsl` template
+    /// This creates a new [`Shader`] from the `vfx_indirect.wesl` template
     /// file, by applying the given alignment for storage buffers. This
     /// produces a shader ready for the specific GPU device associated with
     /// that alignment.
@@ -156,34 +146,26 @@ impl HanabiPlugin {
         min_storage_buffer_offset_alignment: u32,
         has_events: bool,
     ) -> Shader {
-        let indirect_code = include_str!("render/vfx_indirect.wgsl");
-        Shader::from_wgsl(
+        let indirect_code = include_str!("render/vfx_indirect.wesl");
+        Shader::from_wesl(
             indirect_code,
-            std::path::Path::new(file!())
-                .parent()
-                .unwrap()
-                .join(format!(
-                    "render/vfx_indirect_{}_{}.wgsl",
-                    min_storage_buffer_offset_alignment,
-                    if has_events { "events" } else { "noevent" },
-                ))
-                .to_string_lossy(),
+            format!(
+                "embedded://bevy_hanabi/vfx_indirect_{}_{}.wesl",
+                min_storage_buffer_offset_alignment,
+                if has_events { "events" } else { "noevent" },
+            ),
         )
     }
 
-    /// Create the `vfx_prefix_sum.wgsl` shader.
+    /// Create the `vfx_prefix_sum.wesl` shader.
     ///
-    /// This creates a new [`Shader`] from the `vfx_prefix_sum.wgsl` template
+    /// This creates a new [`Shader`] from the `vfx_prefix_sum.wesl` template
     /// file.
     pub(crate) fn make_prefix_sum_shader() -> Shader {
-        let prefix_sum_code = include_str!("render/vfx_prefix_sum.wgsl");
-        Shader::from_wgsl(
+        let prefix_sum_code = include_str!("render/vfx_prefix_sum.wesl");
+        Shader::from_wesl(
             prefix_sum_code,
-            std::path::Path::new(file!())
-                .parent()
-                .unwrap()
-                .join("render/vfx_prefix_sum.wgsl")
-                .to_string_lossy(),
+            "embedded://bevy_hanabi/vfx_prefix_sum.wesl",
         )
     }
 }
@@ -266,7 +248,7 @@ impl Plugin for HanabiPlugin {
             info!("Initializing Hanabi for GPU adapter {}", adapter_name);
         }
 
-        // Insert the properly aligned `vfx_common.wgsl` shader into Assets<Shader>, so
+        // Insert the properly aligned `vfx_common.wesl` shader into Assets<Shader>, so
         // that the automated Bevy shader processing finds it as an import. This is used
         // for init/update/render shaders (but not the indirect one).
         {
@@ -279,7 +261,7 @@ impl Plugin for HanabiPlugin {
                 .unwrap();
         }
 
-        // Insert the two variants of the properly aligned `vfx_indirect.wgsl` shaders
+        // Insert the two variants of the properly aligned `vfx_indirect.wesl` shaders
         // into Assets<Shader>.
         let (
             indirect_shader_noevent,
@@ -294,37 +276,19 @@ impl Plugin for HanabiPlugin {
             let indirect_shader_noevent = HanabiPlugin::make_indirect_shader(align, false);
             let indirect_shader_events = HanabiPlugin::make_indirect_shader(align, true);
             let prefix_sum_shader = HanabiPlugin::make_prefix_sum_shader();
-            let sort_fill_shader = Shader::from_wgsl(
-                include_str!("render/vfx_sort_fill.wgsl"),
-                std::path::Path::new(file!())
-                    .parent()
-                    .unwrap()
-                    .join("render/vfx_sort_fill.wgsl")
-                    .to_string_lossy(),
+            let sort_fill_shader = Shader::from_wesl(
+                include_str!("render/vfx_sort_fill.wesl"),
+                "embedded://bevy_hanabi/vfx_sort_fill.wesl",
             );
-            let sort_shader = Shader::from_wgsl(
-                VFX_SORT_WGSL,
-                std::path::Path::new(file!())
-                    .parent()
-                    .unwrap()
-                    .join("render/vfx_sort.wgsl")
-                    .to_string_lossy(),
-            );
-            let sort_merge_shader = Shader::from_wgsl(
+            let sort_shader =
+                Shader::from_wesl(VFX_SORT_WGSL, "embedded://bevy_hanabi/vfx_sort.wesl");
+            let sort_merge_shader = Shader::from_wesl(
                 VFX_SORT_MERGE_WGSL,
-                std::path::Path::new(file!())
-                    .parent()
-                    .unwrap()
-                    .join("render/vfx_sort_merge.wgsl")
-                    .to_string_lossy(),
+                "embedded://bevy_hanabi/vfx_sort_merge.wesl",
             );
-            let sort_copy_shader = Shader::from_wgsl(
-                include_str!("render/vfx_sort_copy.wgsl"),
-                std::path::Path::new(file!())
-                    .parent()
-                    .unwrap()
-                    .join("render/vfx_sort_copy.wgsl")
-                    .to_string_lossy(),
+            let sort_copy_shader = Shader::from_wesl(
+                include_str!("render/vfx_sort_copy.wesl"),
+                "embedded://bevy_hanabi/vfx_sort_copy.wesl",
             );
 
             let mut assets = app.world_mut().resource_mut::<Assets<Shader>>();

@@ -680,7 +680,7 @@ impl<T: Pod + ShaderSize> BufferTable<T> {
                     let unaligned_range = base_size..(base_size + extra_size);
                     let (range, byte_offset) = round_range_start_down(unaligned_range, 8);
 
-                    let mut dst_slice = new_buffer.slice(range).get_mapped_range_mut();
+                    let mut dst_slice = new_buffer.slice(range).get_mapped_range_mut().unwrap();
 
                     let base_offset = byte_offset as usize;
                     let byte_size = self.aligned_size; // single row
@@ -1096,7 +1096,7 @@ mod gpu_tests {
         });
         let result = futures::executor::block_on(rx);
         assert!(result.is_ok());
-        slice.get_mapped_range()
+        slice.get_mapped_range().unwrap()
     }
 
     /// Submit a command buffer to GPU and wait for completion.

@@ -2,7 +2,7 @@ use std::ops::Sub;
 
 use bevy::prelude::{Quat, Vec2, Vec3, Vec4};
 #[cfg(feature = "gpu_tests")]
-use bevy::render::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
+use bevy::render::renderer::{RenderDevice, RenderQueue};
 
 /// Utility trait to compare floating-point values with a tolerance.
 pub(crate) trait AbsDiffEq {
@@ -166,6 +166,7 @@ impl MockRenderer {
                 power_preference: wgpu::PowerPreference::default(),
                 force_fallback_adapter: false,
                 compatible_surface: None,
+                apply_limit_buckets: false,
             }))
             .expect("Failed to find an appropriate adapter");
 
@@ -182,7 +183,7 @@ impl MockRenderer {
 
         // Turn into Bevy objects
         let device = RenderDevice::from(device);
-        let queue = RenderQueue(std::sync::Arc::new(WgpuWrapper::new(queue)));
+        let queue = RenderQueue::new(queue);
 
         Self {
             instance,
@@ -201,4 +202,99 @@ impl MockRenderer {
     pub fn queue(&self) -> RenderQueue {
         self.queue.clone()
     }
+}
+
+/// Compose a WESL shader into plain WGSL, for testing purposes.
+///
+/// This mimics how Bevy 0.20 composes shaders internally (via the `wesl`
+/// compiler), but without requiring a GPU device or the full Bevy render app.
+/// The `main_source` is compiled as the main module of a dummy `bevy_hanabi`
+/// package; `modules` provides the source of any additional WESL module the
+/// shader imports (for example `("bevy_hanabi::vfx_common", source)` or
+/// `("bevy_render::view", source)`). `defs` are the conditional compilation
+/// (shader defs) feature flags.
+#[cfg(test)]
+pub(crate) fn compose_wesl_shader(
+    main_source: &str,
+    modules: &[(&str, &str)],
+    defs: &[(&str, bool)],
+) -> Result<String, String> {
+    use std::borrow::Cow;
+    use wesl::syntax::{ModulePath, PathOrigin};
+    use wesl::{CompileOptions, Features, Resolver};
+
+    fn module_path(name: &str) -> ModulePath {
+        let mut components = name.split("::");
+        let package = components.next().unwrap_or("");
+        ModulePath {
+            origin: PathOrigin::Package(package.to_string()),
+            components: components.map(str::to_string).collect(),
+        }
+    }
+
+    struct MapResolver {
+        modules: Vec<(ModulePath, String)>,
+    }
+
+    impl Resolver for MapResolver {
+        fn resolve_source<'a>(
+            &'a self,
+            path: &ModulePath,
+        ) -> Result<Cow<'a, str>, wesl::error::ResolveError> {
+            let path = self.canonical_path(path);
+            self.modules
+                .iter()
+                .find(|(module_path, _)| *module_path == path)
+                .map(|(_, source)| Cow::Borrowed(source.as_str()))
+                .ok_or_else(|| {
+                    wesl::error::ResolveError::ModuleNotFound(
+                        path.clone(),
+                        "<bevy_hanabi test resolver>".to_string(),
+                    )
+                })
+        }
+
+        // Mirror `bevy_shader::ShaderResolver`: cross-package imports are turned
+        // into `<current_package>/<target_package>` by `ModulePath::join_path`,
+        // so strip everything but the last package segment.
+        fn canonical_path(&self, path: &ModulePath) -> ModulePath {
+            match &path.origin {
+                PathOrigin::Package(package) if package.contains('/') => ModulePath {
+                    origin: PathOrigin::Package(package.rsplit('/').next().unwrap().to_string()),
+                    components: path.components.clone(),
+                },
+                _ => path.clone(),
+            }
+        }
+    }
+
+    let main_path = module_path("bevy_hanabi::test_shader");
+    let mut all_modules = vec![(main_path.clone(), main_source.to_string())];
+    for (name, source) in modules {
+        all_modules.push((module_path(name), (*source).to_string()));
+    }
+    let resolver = MapResolver {
+        modules: all_modules,
+    };
+
+    let mut features = Features::new();
+    for (name, value) in defs {
+        features.set(*name, *value);
+    }
+
+    let options = CompileOptions {
+        // Match Bevy's own shader cache options.
+        visibility: false,
+        // Source maps require filesystem display names, which our in-memory
+        // resolver does not provide.
+        sourcemap: false,
+        // Validation requires the (disabled) `eval` feature of `wesl`.
+        validate: false,
+        features,
+        ..Default::default()
+    };
+
+    wesl::compile(&main_path, &options, &resolver)
+        .map(|result| result.to_string())
+        .map_err(|err| err.to_string())
 }

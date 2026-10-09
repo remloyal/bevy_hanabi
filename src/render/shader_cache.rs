@@ -39,9 +39,9 @@ impl ShaderCache {
             handle.clone()
         } else {
             let hash = bevy::platform::hash::FixedHasher.hash_one(source);
-            let shader = Shader::from_wgsl(
+            let shader = Shader::from_wesl(
                 source.to_string(),
-                format!("hanabi/{}_{}_{}.wgsl", filename, suffix, hash),
+                format!("hanabi/{}_{}_{}.wesl", filename, suffix, hash),
             );
             trace!(
                 "Shader path={} import_path={:?} imports={:?}",

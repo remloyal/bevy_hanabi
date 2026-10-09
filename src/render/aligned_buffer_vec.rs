@@ -1253,7 +1253,7 @@ mod gpu_tests {
             timeout: None,
         });
         let _result = futures::executor::block_on(rx);
-        let view = buffer.get_mapped_range();
+        let view = buffer.get_mapped_range().unwrap();
 
         // Validate content
         assert_eq!(view.len(), final_align as usize * CAPACITY);

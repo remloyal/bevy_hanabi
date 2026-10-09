@@ -1,15 +1,15 @@
-use std::{borrow::Cow, num::NonZeroU64};
+use std::num::NonZeroU64;
 
 use bevy::{prelude::Vec3, render::renderer::RenderQueue};
 use bytemuck::{cast_slice, Pod, Zeroable};
 use futures::channel::oneshot;
-use naga_oil::compose::{ComposableModuleDescriptor, Composer, NagaModuleDescriptor};
 use wgpu::util::DeviceExt;
 
 use super::*;
 use crate::{
-    plugin::VFX_SORT_WGSL, test_utils::MockRenderer, Attribute, EffectAsset, EffectShaderSources,
-    ExprWriter, SetAttributeModifier, SpawnerSettings,
+    plugin::VFX_SORT_WGSL,
+    test_utils::{compose_wesl_shader, MockRenderer},
+    Attribute, EffectAsset, EffectShaderSources, ExprWriter, SetAttributeModifier, SpawnerSettings,
 };
 
 #[repr(C)]
@@ -80,7 +80,7 @@ fn readback_vec<T: Pod>(
         timeout: None,
     });
     futures::executor::block_on(rx).unwrap().unwrap();
-    let mapped = slice.get_mapped_range();
+    let mapped = slice.get_mapped_range().unwrap();
     let out = cast_slice::<u8, T>(&mapped).to_vec();
     drop(mapped);
     staging.unmap();
@@ -95,27 +95,20 @@ fn create_composed_shader_module(
 ) -> Result<wgpu::ShaderModule, Box<dyn std::error::Error>> {
     let spawner_padding_code = GpuSpawnerParams::padding_code(storage_alignment);
     let batch_info_padding_code = GpuBatchInfo::padding_code(storage_alignment);
-    let common_code = include_str!("vfx_common.wgsl")
+    let common_code = include_str!("vfx_common.wesl")
         .replace("{{SPAWNER_PADDING}}", &spawner_padding_code)
         .replace("{{BATCH_INFO_PADDING}}", &batch_info_padding_code);
 
-    let mut composer = Composer::default();
-    composer.add_composable_module(ComposableModuleDescriptor {
-        source: &common_code,
-        file_path: "bevy_hanabi::vfx_common",
-        ..Default::default()
-    })?;
-    let module = composer.make_naga_module(NagaModuleDescriptor {
-        source: shader_source,
-        file_path,
-        shader_defs: Default::default(),
-        ..Default::default()
-    })?;
+    let wgsl = compose_wesl_shader(
+        shader_source,
+        &[("bevy_hanabi::vfx_common", &common_code)],
+        &[],
+    )?;
     Ok(device
         .wgpu_device()
         .create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(file_path),
-            source: wgpu::ShaderSource::Naga(Cow::Owned(module)),
+            source: wgpu::ShaderSource::Wgsl(wgsl.into()),
         }))
 }
 
@@ -192,10 +185,12 @@ fn create_sort_pipeline(
         bind_group_layouts: &[Some(&bgl)],
         immediate_size: 0,
     });
-    let source = VFX_SORT_WGSL
-        .replace("#ifdef HAS_DUAL_KEY", "")
-        .replace("#ifdef TEST", "")
-        .replace("#endif", "");
+    let source = compose_wesl_shader(
+        VFX_SORT_WGSL.as_ref(),
+        &[],
+        &[("HAS_DUAL_KEY", true), ("TEST", true)],
+    )
+    .expect("Failed to compose vfx_sort.wesl");
     let shader = wgpu_device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("hanabi:test:vfx_sort"),
         source: wgpu::ShaderSource::Wgsl(source.into()),
@@ -222,13 +217,13 @@ fn real_ribbon_sort_chain_isolated_per_instance() -> Result<(), Box<dyn std::err
     let fill_shader = create_composed_shader_module(
         &device,
         storage_alignment,
-        include_str!("vfx_sort_fill.wgsl"),
+        include_str!("vfx_sort_fill.wesl"),
         "bevy_hanabi::vfx_sort_fill",
     )?;
     let copy_shader = create_composed_shader_module(
         &device,
         storage_alignment,
-        include_str!("vfx_sort_copy.wgsl"),
+        include_str!("vfx_sort_copy.wesl"),
         "bevy_hanabi::vfx_sort_copy",
     )?;
 
@@ -572,7 +567,7 @@ fn real_vfx_prefix_sum_contracts() -> Result<(), Box<dyn std::error::Error>> {
     let shader = create_composed_shader_module(
         &device,
         storage_alignment,
-        include_str!("vfx_prefix_sum.wgsl"),
+        include_str!("vfx_prefix_sum.wesl"),
         "bevy_hanabi::vfx_prefix_sum",
     )?;
 
@@ -1619,7 +1614,7 @@ fn real_vfx_indirect_contracts() -> Result<(), Box<dyn std::error::Error>> {
     let shader = create_composed_shader_module(
         &device,
         storage_alignment,
-        include_str!("vfx_indirect.wgsl"),
+        include_str!("vfx_indirect.wesl"),
         "bevy_hanabi::vfx_indirect",
     )?;
 
